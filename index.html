@@ -1,0 +1,1133 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#1a1207">
+  <title>Die besten Teige der Welt</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="icon" type="image/png" href="icon-192.png">
+  <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@300;400;600;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #1a1207; overflow-x: hidden; -webkit-tap-highlight-color: transparent; }
+    input, select, textarea, button { font-family: inherit; }
+    #loading { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #c4956a; font-family: 'DM Sans', sans-serif; gap: 12px; }
+    #loading .spinner { width: 32px; height: 32px; border: 3px solid rgba(196,149,106,0.2); border-top-color: #c4956a; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div id="loading">
+      <div class="spinner"></div>
+      <div>App wird geladen...</div>
+    </div>
+  </div>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
+  <script type="text/babel" data-type="module">
+const { useState, useEffect, useCallback } = React;
+
+// ─── Mehlsorten ───
+const FLOUR_DB = {
+  weizen: { name: "Weizenmehl", icon: "🌾", desc: "Typ 550", hydration: 0.65, saltPct: 0.02, sugarPct: 0.02, bulkBase: 1.5, proofMin: 45, bakeTempC: 220, color: "#d4a54a", cat: "bread" },
+  bauern: { name: "Bauernmehl", icon: "🌿", desc: "Ruchmehl", hydration: 0.68, saltPct: 0.022, sugarPct: 0.01, bulkBase: 1.7, proofMin: 50, bakeTempC: 230, color: "#8b7355", cat: "bread" },
+  zopf: { name: "Zopfmehl", icon: "🥐", desc: "Weissmehl", hydration: 0.55, saltPct: 0.018, sugarPct: 0.06, bulkBase: 1.3, proofMin: 40, bakeTempC: 200, color: "#e8c87a", cat: "bread" },
+  dinkel: { name: "Dinkelmehl", icon: "🌻", desc: "Typ 630", hydration: 0.62, saltPct: 0.02, sugarPct: 0.015, bulkBase: 1.4, proofMin: 40, bakeTempC: 215, color: "#b89a5a", cat: "bread" },
+  roggen: { name: "Roggenmehl", icon: "🪵", desc: "Typ 1150", hydration: 0.72, saltPct: 0.022, sugarPct: 0.005, bulkBase: 2.0, proofMin: 55, bakeTempC: 235, color: "#6b5b4a", cat: "bread" },
+  vollkorn: { name: "Vollkornmehl", icon: "🌰", desc: "Weizen-VK", hydration: 0.75, saltPct: 0.02, sugarPct: 0.015, bulkBase: 1.8, proofMin: 50, bakeTempC: 225, color: "#7a6340", cat: "bread" },
+  pizza: { name: "Pizzamehl", icon: "🍕", desc: "Tipo 00", hydration: 0.62, saltPct: 0.025, sugarPct: 0.01, bulkBase: 1.4, proofMin: 30, bakeTempC: 250, color: "#d48a3a", cat: "pizza" },
+  pizzaVK: { name: "Pizza Integrale", icon: "🍕", desc: "Vollkorn-Pizza", hydration: 0.68, saltPct: 0.025, sugarPct: 0.01, bulkBase: 1.6, proofMin: 35, bakeTempC: 250, color: "#8a6a3a", cat: "pizza" },
+};
+
+const WATER_TEMPS = {
+  cold: { name: "Kalt", icon: "🧊", desc: "10–15°C · ungekocht", tempC: 12 },
+  cool: { name: "Kühl", icon: "💧", desc: "18–22°C · Leitungswasser", tempC: 20 },
+  lukewarm: { name: "Lauwarm", icon: "🌡️", desc: "25–30°C", tempC: 28 },
+  warm: { name: "Warm", icon: "♨️", desc: "32–38°C", tempC: 35 },
+};
+
+const FERMENT_METHODS = {
+  warm: { name: "Raumtemp.", icon: "🏠", desc: "Normale Gare" },
+  cold: { name: "Kühlschrank", icon: "❄️", desc: "Kalte Gare" },
+  split: { name: "Gemischt", icon: "🏠❄️", desc: "Raum → Kühlschrank" },
+};
+const LEAVEN_TYPES = {
+  yeast: { name: "Nur Hefe", desc: "Ohne Sauerteig" },
+  sourdough: { name: "Sauerteig", desc: "Nur ASG" },
+  hybrid: { name: "Hybrid", desc: "Hefe + ASG" },
+};
+const YEAST_TYPES = {
+  fresh: { name: "Frischhefe", desc: "Hefewürfel", factor: 1.0 },
+  dry: { name: "Trockenhefe", desc: "Granulat", factor: 0.4 },
+};
+
+const RATING_ISSUES = [
+  { id: "flat", label: "Nicht aufgegangen", icon: "📉", adj: { yeastAdj: 1.5, hydrationAdj: 0 } },
+  { id: "dense", label: "Zu dicht / schwer", icon: "🧱", adj: { yeastAdj: 0.5, hydrationAdj: 0.01 } },
+  { id: "wet", label: "Zu feucht / klebrig", icon: "💦", adj: { yeastAdj: 0, hydrationAdj: -0.03 } },
+  { id: "dry", label: "Zu trocken", icon: "🏜️", adj: { yeastAdj: 0, hydrationAdj: 0.03 } },
+  { id: "overproof", label: "Übergärt", icon: "💨", adj: { yeastAdj: -0.8, hydrationAdj: 0 } },
+  { id: "bland", label: "Fade / wenig Geschmack", icon: "😐", adj: { yeastAdj: -0.3, hydrationAdj: 0 } },
+  { id: "sour", label: "Zu sauer", icon: "🍋", adj: { yeastAdj: 0.3, hydrationAdj: 0 } },
+  { id: "burnt", label: "Verbrannt / zu dunkel", icon: "🔥", adj: { yeastAdj: 0, hydrationAdj: 0 } },
+  { id: "pale", label: "Zu hell / nicht durch", icon: "🫥", adj: { yeastAdj: 0, hydrationAdj: 0 } },
+  { id: "perfect", label: "Perfekt!", icon: "🏆", adj: { yeastAdj: 0, hydrationAdj: 0 } },
+];
+
+// ─── Speicher ───
+function load(key) {
+  try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : null; } catch { return null; }
+}
+function save(key, data) {
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) { console.error("Save:", e); }
+}
+
+// ─── Mischmehl ───
+function blend(mix) {
+  const tot = mix.reduce((s, f) => s + f.grams, 0);
+  if (tot === 0) return FLOUR_DB.weizen;
+  const w = (p) => mix.reduce((s, f) => s + FLOUR_DB[f.type][p] * f.grams, 0) / tot;
+  return { hydration: w("hydration"), saltPct: w("saltPct"), sugarPct: w("sugarPct"), bulkBase: w("bulkBase"), proofMin: Math.round(w("proofMin")), bakeTempC: Math.round(w("bakeTempC")) };
+}
+
+// ─── Anleitung ───
+function mkGuide(leaven, method, waterTempLabel, ing, mix, yeastType) {
+  const fd = mix.map(f => `${f.grams}g ${FLOUR_DB[f.type].name}`).join(" + ");
+  const yt = yeastType === "dry" ? "Trockenhefe" : "Frischhefe";
+  const s = [];
+  if (leaven === "yeast") {
+    if (yeastType === "dry") {
+      s.push({ t: "Trockenhefe aktivieren", txt: `${ing.yeastG}g Trockenhefe in ~100ml des Wassers (${waterTempLabel}) einrühren. Prise Zucker dazu. 10 Min quellen lassen bis es schäumt.`, ic: "🌾" });
+    } else {
+      s.push({ t: "Frischhefe auflösen", txt: `${ing.yeastG}g Frischhefe in ~100ml des Wassers (${waterTempLabel}) zerbröseln und auflösen. Prise Zucker dazu. 5 Min stehen lassen.`, ic: "🧊" });
+    }
+  } else if (leaven === "sourdough") {
+    s.push({ t: "Sauerteig auflösen", txt: `${ing.starterG}g aktives ASG in ${Math.round(ing.waterG * 0.3)}ml Wasser (${waterTempLabel}) auflösen und gut verrühren. Kein Hefe nötig — der Sauerteig allein treibt den Teig.`, ic: "🧪" });
+  } else {
+    if (yeastType === "dry") {
+      s.push({ t: "Sauerteig & Trockenhefe", txt: `${ing.starterG}g ASG in ${Math.round(ing.waterG * 0.3)}ml Wasser auflösen. Separat ${ing.yeastG}g Trockenhefe in 50ml warmem Wasser 10 Min quellen lassen.`, ic: "🧪" });
+    } else {
+      s.push({ t: "Sauerteig & Frischhefe", txt: `${ing.starterG}g ASG in ${Math.round(ing.waterG * 0.3)}ml Wasser auflösen. Separat ${ing.yeastG}g Frischhefe in 50ml warmem Wasser auflösen.`, ic: "🧪" });
+    }
+  }
+  s.push({ t: "Mehl & Trockenes", txt: `${fd} in Schüssel. ${ing.saltG}g Salz${ing.sugarG > 0 ? `, ${ing.sugarG}g Zucker` : ""} dazu. Salz nie direkt auf Hefe!`, ic: "🌾" });
+  s.push({ t: "Zusammenführen", txt: `Flüssigkeiten zum Mehl. Total ${ing.waterG}g Wasser (${waterTempLabel}).`, ic: "💧" });
+  s.push({ t: "Kneten", txt: leaven === "sourdough" ? "12–18 Min kneten. Sauerteig braucht etwas mehr Arbeit für die Glutenentwicklung." : "10–15 Min von Hand oder 8 Min Maschine. Glatt & elastisch.", ic: "🤲" });
+  if (method === "cold") {
+    s.push({ t: "Kühlschrank", txt: "In geölte Schüssel, Folie drüber, ab in den Kühlschrank.", ic: "❄️" });
+    s.push({ t: "Am nächsten Tag", txt: "30 Min bei Raumtemp., dann vorsichtig formen. 30 Min Stückgare.", ic: "☀️" });
+  } else {
+    s.push({ t: "Stockgare", txt: leaven === "sourdough" ? "In geölter Schüssel abgedeckt gehen lassen. Sauerteig braucht Geduld — Volumen soll 50–70% zunehmen." : "In geölter Schüssel, feuchtes Tuch drüber. Verdoppeln lassen.", ic: "⏳" });
+    s.push({ t: "Formen", txt: "Auf bemehlter Fläche formen. Nochmals gehen lassen.", ic: "🍞" });
+  }
+  const isPizza = mix.some(f => FLOUR_DB[f.type].cat === "pizza");
+  s.push({ t: "Backen", txt: isPizza ? "Ofen auf Maximum vorheizen (250°C+, ideal mit Pizzastein). Pizza dünn ausziehen, belegen, 8–12 Min backen." : "Ofen 20 Min vorheizen. Schale Wasser auf Ofenboden für Dampf. Einschneiden und backen.", ic: "🔥" });
+  s.push({ t: "Fertig!", txt: isPizza ? "Kurz ruhen lassen, aufschneiden, geniessen!" : "Hohl klopfen = fertig. 30 Min auf Gitter abkühlen.", ic: "✅" });
+  return s;
+}
+
+// ─── Berechnung: Vorwärts+Rückwärts-Zeitplanung ───
+// Konzept:
+//   1. Fixe Blöcke vom Start abziehen (Mischen, Kneten)
+//   2. Fixe Blöcke vom Ende abziehen (Formen, Stückgare, Vorheizen, Backen)
+//   3. GESAMTE verbleibende Zeit = Stockgare
+//   4. Hefe wird berechnet, damit der Teig genau in dieser Zeit aufgeht
+//   5. Maximum 5 Tage Gärzeit
+
+const MAX_BULK_H = 5 * 24;
+
+const SCI = {
+  // Hefemenge für gewünschte Gärzeit bei gegebener Temperatur
+  yeastForHours(fG, tC, targetH, p) {
+    const tf = Math.pow(2, (tC - 24) / 8);
+    const needed = p.bulkBase / (targetH * tf);
+    return Math.round(fG * Math.max(0.0005, Math.min(0.05, 0.02 * needed)) * 10) / 10;
+  },
+  // Tatsächliche Gärzeit für gegebene Hefemenge
+  hoursForYeast(fG, yG, tC, p) {
+    const tf = Math.pow(2, (tC - 24) / 8);
+    const yf = Math.max(0.001, (yG / fG) / 0.02);
+    return p.bulkBase / (tf * yf);
+  },
+  schedule(mix, roomC, readyTime, startTime, ferment, leaven, starterG, waterTempKey, adj, yeastType, warmHours) {
+    const totF = mix.reduce((s, f) => s + f.grams, 0);
+    const p = blend(mix);
+    const hAdj = (adj && adj.hydrationAdj) || 0;
+    const yAdj = (adj && adj.yeastAdj) || 0;
+    const waterG = Math.round(totF * (p.hydration + hAdj));
+    const saltG = Math.round(totF * p.saltPct * 10) / 10;
+    const sugarG = Math.round(totF * p.sugarPct * 10) / 10;
+    const isPizza = mix.some(f => FLOUR_DB[f.type].cat === "pizza");
+    const bakMin = isPizza ? (totF <= 500 ? 12 : 15) : (totF <= 500 ? 35 : totF <= 750 ? 40 : 45);
+    const bakeT = p.bakeTempC;
+    const wt = WATER_TEMPS[waterTempKey];
+    const ready = new Date(readyTime);
+    const start = new Date(startTime);
+
+    // Fixe Blöcke (Minuten)
+    const mixMin = 5, kneadMin = 15, shapeMin = 10;
+    const proofMin = (ferment === "cold" || ferment === "split") ? 30 : p.proofMin;
+    const preheatMin = 20;
+    const warmUpMin = (ferment === "cold" || ferment === "split") ? 30 : 0;
+    const fixedStartMin = mixMin + kneadMin;
+    const fixedEndMin = warmUpMin + shapeMin + proofMin + preheatMin + bakMin;
+
+    // Verfügbare Gärzeit = Gesamtzeit - fixe Blöcke
+    const totalMin = (ready - start) / 60000;
+    let bulkMin = Math.max(30, Math.min(totalMin - fixedStartMin - fixedEndMin, MAX_BULK_H * 60));
+    const bulkH = bulkMin / 60;
+
+    // ── Teigtemperatur: Bäcker-Dreisatz-Formel ──
+    const waterTempC = wt.tempC;
+    const flourTempC = roomC;
+    const doughTempC = Math.round((flourTempC + waterTempC + roomC) / 3);
+
+    // Bei split: gewichteter Durchschnitt aus warm- und kalt-Phase
+    let fermentTempC;
+    if (ferment === "cold") {
+      fermentTempC = 5;
+    } else if (ferment === "split") {
+      const wH = Math.min(warmHours || 2, bulkH);
+      const cH = Math.max(0, bulkH - wH);
+      fermentTempC = bulkH > 0 ? Math.round((doughTempC * wH + 5 * cH) / bulkH) : doughTempC;
+    } else {
+      fermentTempC = doughTempC;
+    }
+
+    // Hefemenge berechnen
+    let yeastG = 0;
+    const effStarter = starterG;
+    const starterEquiv = effStarter * 0.003;
+
+    if (leaven === "sourdough") {
+      yeastG = 0; // Kein Hefe — Sauerteig nutzt die gesamte verfügbare Zeit
+    } else if (leaven === "hybrid") {
+      const base = this.yeastForHours(totF, fermentTempC, bulkH, p);
+      yeastG = Math.max(0.3, Math.round((base - starterEquiv + yAdj) * 10) / 10);
+    } else {
+      yeastG = Math.max(0.3, Math.round((this.yeastForHours(totF, fermentTempC, bulkH, p) + yAdj) * 10) / 10);
+    }
+
+    // Effektive Gärzeit für Anzeige
+    let displayBulkH;
+    if (leaven === "sourdough") {
+      displayBulkH = bulkH;
+    } else {
+      const totalEquiv = yeastG + starterEquiv;
+      displayBulkH = totalEquiv > 0 ? Math.min(this.hoursForYeast(totF, totalEquiv, fermentTempC, p), bulkH) : bulkH;
+    }
+
+    // Trockenhefe: 40% der Frischhefe-Menge (Standardumrechnung)
+    const yeastFactor = YEAST_TYPES[yeastType || "fresh"].factor;
+    const displayYeastG = leaven === "sourdough" ? 0 : Math.round(yeastG * yeastFactor * 10) / 10;
+
+    const ing = { flourG: totF, waterG, yeastG: displayYeastG, saltG, sugarG, starterG: effStarter };
+    const waterLabel = `${wt.name} (${wt.desc})`;
+
+    // Zeitplan aufbauen: Vorwärts vom Start
+    const mixTime = new Date(start);
+    const kneadTime = new Date(mixTime.getTime() + mixMin * 60000);
+    const bulkStart = new Date(kneadTime.getTime() + kneadMin * 60000);
+    const bulkEnd = new Date(bulkStart.getTime() + displayBulkH * 3600000);
+
+    // Rückwärts vom Ende
+    const bakeEnd = new Date(ready);
+    const bakeStart = new Date(bakeEnd - bakMin * 60000);
+    const preheatTime = new Date(bakeStart - preheatMin * 60000);
+
+    let steps;
+    if (ferment === "cold") {
+      const coldStart = new Date(bulkStart);
+      const coldEnd = new Date(preheatTime.getTime() - (warmUpMin + shapeMin + proofMin) * 60000);
+      const warmUpTime = new Date(coldEnd);
+      const shapeTime = new Date(warmUpTime.getTime() + warmUpMin * 60000);
+      const proofTime = new Date(shapeTime.getTime() + shapeMin * 60000);
+      const actualColdH = Math.max(1, (coldEnd - coldStart) / 3600000);
+      displayBulkH = actualColdH;
+      steps = [
+        { time: mixTime, label: "Zutaten mischen", icon: "⚖️", duration: `${mixMin} Min`, phase: "prep" },
+        { time: kneadTime, label: "Teig kneten", icon: "🤲", duration: `${kneadMin} Min`, phase: "prep" },
+        { time: coldStart, label: "In den Kühlschrank", icon: "❄️", duration: fmtDur(actualColdH), phase: "cold" },
+        { time: coldEnd, label: "Aus dem Kühlschrank", icon: "🌡️", duration: "—", phase: "morning" },
+        { time: warmUpTime, label: "Aufwärmen lassen", icon: "🏠", duration: `${warmUpMin} Min`, phase: "morning" },
+        { time: shapeTime, label: isPizza ? "Teiglinge formen" : "Formen", icon: isPizza ? "🍕" : "🍞", duration: `${shapeMin} Min`, phase: "morning" },
+        { time: proofTime, label: "Stückgare", icon: "⏳", duration: `${proofMin} Min`, phase: "morning" },
+        { time: preheatTime, label: `Ofen vorheizen ${bakeT}°C`, icon: "🔥", duration: `${preheatMin} Min`, phase: "morning" },
+        { time: bakeStart, label: `Backen (${bakeT}°C)`, icon: "♨️", duration: `${bakMin} Min`, phase: "morning" },
+        { time: bakeEnd, label: "Fertig!", icon: "✅", duration: "—", phase: "done" },
+      ];
+    } else if (ferment === "split") {
+      // Erst warm, dann kalt
+      const wH = Math.min(warmHours || 2, bulkH);
+      const warmEnd = new Date(bulkStart.getTime() + wH * 3600000);
+      const coldEnd = new Date(preheatTime.getTime() - (warmUpMin + shapeMin + proofMin) * 60000);
+      const actualColdH = Math.max(0, (coldEnd - warmEnd) / 3600000);
+      const warmUpTime = new Date(coldEnd);
+      const shapeTime = new Date(warmUpTime.getTime() + warmUpMin * 60000);
+      const proofTime = new Date(shapeTime.getTime() + shapeMin * 60000);
+      displayBulkH = wH + actualColdH;
+      steps = [
+        { time: mixTime, label: "Zutaten mischen", icon: "⚖️", duration: `${mixMin} Min`, phase: "prep" },
+        { time: kneadTime, label: "Teig kneten", icon: "🤲", duration: `${kneadMin} Min`, phase: "prep" },
+        { time: bulkStart, label: `Stockgare Raumtemp. (${doughTempC}°C)`, icon: "🏠", duration: fmtDur(wH), phase: "bulk" },
+        { time: warmEnd, label: "In den Kühlschrank", icon: "❄️", duration: fmtDur(actualColdH), phase: "cold" },
+        { time: coldEnd, label: "Aus dem Kühlschrank", icon: "🌡️", duration: "—", phase: "morning" },
+        { time: warmUpTime, label: "Aufwärmen lassen", icon: "🏠", duration: `${warmUpMin} Min`, phase: "morning" },
+        { time: shapeTime, label: isPizza ? "Teiglinge formen" : "Formen", icon: isPizza ? "🍕" : "🍞", duration: `${shapeMin} Min`, phase: "morning" },
+        { time: proofTime, label: "Stückgare", icon: "⏳", duration: `${proofMin} Min`, phase: "morning" },
+        { time: preheatTime, label: `Ofen vorheizen ${bakeT}°C`, icon: "🔥", duration: `${preheatMin} Min`, phase: "morning" },
+        { time: bakeStart, label: `Backen (${bakeT}°C)`, icon: "♨️", duration: `${bakMin} Min`, phase: "morning" },
+        { time: bakeEnd, label: "Fertig!", icon: "✅", duration: "—", phase: "done" },
+      ];
+    } else {
+      const shapeTime = new Date(bulkEnd);
+      const proofTime = new Date(shapeTime.getTime() + shapeMin * 60000);
+      steps = [
+        { time: mixTime, label: "Zutaten mischen", icon: "⚖️", duration: `${mixMin} Min`, phase: "prep" },
+        { time: kneadTime, label: "Teig kneten", icon: "🤲", duration: `${kneadMin} Min`, phase: "prep" },
+        { time: bulkStart, label: "Stockgare", icon: "🫧", duration: fmtDur(displayBulkH), phase: "bulk" },
+        { time: shapeTime, label: isPizza ? "Teiglinge formen" : "Formen", icon: isPizza ? "🍕" : "🍞", duration: `${shapeMin} Min`, phase: "shape" },
+        { time: proofTime, label: "Stückgare", icon: "⏳", duration: `${proofMin} Min`, phase: "proof" },
+        { time: preheatTime, label: `Ofen vorheizen ${bakeT}°C`, icon: "🔥", duration: `${preheatMin} Min`, phase: "bake" },
+        { time: bakeStart, label: `Backen (${bakeT}°C)`, icon: "♨️", duration: `${bakMin} Min`, phase: "bake" },
+        { time: bakeEnd, label: "Fertig!", icon: "✅", duration: "—", phase: "done" },
+      ];
+    }
+
+    const guide = mkGuide(leaven, ferment, waterLabel, ing, mix, yeastType);
+
+    // Qualitäts-Hinweis
+    let qualityNote = null;
+    if (displayBulkH >= 48) qualityNote = { type: "warn", text: `Sehr lange Gare (${fmtDur(displayBulkH)}). ${leaven === "sourdough" ? "Kann sehr sauer werden." : "Minimale Hefe — Gärung beobachten."}` };
+    else if (displayBulkH >= 12) qualityNote = { type: "great", text: `Langzeitgare (${fmtDur(displayBulkH)}) — maximaler Geschmack & Bekömmlichkeit!` };
+    else if (displayBulkH < 1) qualityNote = { type: "warn", text: "Sehr kurz — wenig Zeit für Geschmacksentwicklung. Startzeitpunkt vorverlegen?" };
+
+    return { ingredients: ing, baking: { tempC: bakeT, minutes: bakMin }, fermentation: { bulkHours: displayBulkH, tempC: fermentTempC, doughTempC, method: ferment }, steps, readyTime: ready, guide, waterLabel, isPizza, qualityNote, totalHours: totalMin / 60 };
+  }
+};
+
+function fmtDur(h) {
+  if (h < 1) return `${Math.round(h * 60)} Min`;
+  const hrs = Math.floor(h); const mins = Math.round((h - hrs) * 60);
+  if (hrs >= 24) { const d = Math.floor(hrs / 24); const rh = hrs % 24; return rh > 0 ? `${d}d ${rh}h` : `${d} Tage`; }
+  return mins > 0 ? `${hrs}h ${mins}min` : `${hrs}h`;
+}
+
+// ─── Lern-System ───
+function calcAdj(history) {
+  if (!history || history.length < 1) return {};
+  const recent = history.slice(-15);
+  let yAdj = 0, hAdj = 0;
+  // Gewichtete Auswertung der Issues
+  recent.forEach((h, idx) => {
+    const weight = (idx + 1) / recent.length; // Neuere Einträge stärker
+    if (h.issues && h.issues.length > 0) {
+      h.issues.forEach(issueId => {
+        const issue = RATING_ISSUES.find(ri => ri.id === issueId);
+        if (issue) {
+          yAdj += issue.adj.yeastAdj * weight * 0.3;
+          hAdj += issue.adj.hydrationAdj * weight * 0.3;
+        }
+      });
+    }
+  });
+  // Gute Bewertungen stabilisieren
+  const perfects = recent.filter(h => h.rating >= 4 && (!h.issues || h.issues.length === 0 || h.issues.includes("perfect")));
+  if (perfects.length > 3) { yAdj *= 0.5; hAdj *= 0.5; }
+  return { yeastAdj: Math.round(yAdj * 10) / 10, hydrationAdj: Math.round(hAdj * 1000) / 1000 };
+}
+
+// ─── Formatierung ───
+function fT(d) { return d instanceof Date && !isNaN(d) ? d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "--:--"; }
+function fD(d) { return d instanceof Date && !isNaN(d) ? d.toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" }) : ""; }
+function fDI(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; }
+
+// ════════════════════════════════════════
+function TeigPlaner() {
+  const t8 = new Date(); t8.setDate(t8.getDate() + 1); t8.setHours(8, 0, 0, 0);
+  const now = new Date();
+
+  const [flourMix, setFlourMix] = useState([{ type: "weizen", grams: 500 }]);
+  const [temp, setTemp] = useState(21);
+  const [readyStr, setReadyStr] = useState(fDI(t8));
+  const [startStr, setStartStr] = useState(fDI(now));
+  const [startNow, setStartNow] = useState(true);
+  const [ferment, setFerment] = useState("warm");
+  const [warmHours, setWarmHours] = useState(2);
+  const [leaven, setLeaven] = useState("yeast");
+  const [yeastType, setYeastType] = useState("fresh");
+  const [waterTemp, setWaterTemp] = useState("lukewarm");
+  const [schedule, setSchedule] = useState(null);
+  const [activeStep, setActiveStep] = useState(null);
+  const [showGuide, setShowGuide] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [timeError, setTimeError] = useState(null);
+
+  // User system
+  const [userName, setUserName] = useState("");
+  const [viewMode, setViewMode] = useState("shared"); // "shared" or "me"
+  const [showNameInput, setShowNameInput] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+  const [allUsers, setAllUsers] = useState([]);
+
+  const [history, setHistory] = useState([]);
+  const [adj, setAdj] = useState({});
+  const [ratingMode, setRatingMode] = useState(false);
+  const [pRating, setPRating] = useState(0);
+  const [pNotes, setPNotes] = useState("");
+  const [pIssues, setPIssues] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [exportHtml, setExportHtml] = useState(null);
+  const [copyMsg, setCopyMsg] = useState(null);
+  const [showAsg, setShowAsg] = useState(false);
+  const [asgLog, setAsgLog] = useState([]);
+
+  useEffect(() => {
+    const h = load("teig-history-v2") || [];
+    const u = load("teig-username") || "";
+    const users = load("teig-users") || [];
+    const asg = load("asg-log") || [];
+    setHistory(h);
+    setUserName(u);
+    setAllUsers(users);
+    setAsgLog(asg);
+    setAdj(calcAdj(h));
+    if (!u) setShowNameInput(true);
+    setLoaded(true);
+  }, []);
+
+  const saveUserName = (name) => {
+    setUserName(name);
+    setShowNameInput(false);
+    save("teig-username", name, false);
+    if (!allUsers.includes(name)) {
+      const nu = [...allUsers, name];
+      setAllUsers(nu);
+      save("teig-users", nu, true);
+    }
+  };
+
+  const calculate = useCallback(() => {
+    const rt = new Date(readyStr);
+    const st = startNow ? new Date() : new Date(startStr);
+    const totF = flourMix.reduce((s, f) => s + f.grams, 0);
+    if (isNaN(rt) || totF < 100) return;
+    const diffH = (rt - st) / 3600000;
+    if (diffH < 1.5) { setTimeError("Zu wenig Zeit! Mind. 1.5h zwischen Start und Fertig."); setSchedule(null); return; }
+    if (diffH > MAX_BULK_H + 2) { setTimeError("Maximum 5 Tage zwischen Start und Fertig."); setSchedule(null); return; }
+    setTimeError(null);
+    const s = SCI.schedule(flourMix, temp, rt, st, ferment, leaven, starterG, waterTemp, adj, yeastType, warmHours);
+    setSchedule(s);
+    const n = new Date(); let a = 0;
+    for (let i = 0; i < s.steps.length; i++) { if (n >= s.steps[i].time) a = i; }
+    setActiveStep(a);
+  }, [flourMix, temp, readyStr, startStr, startNow, ferment, warmHours, leaven, yeastType, waterTemp, adj]);
+
+  useEffect(() => { if (loaded) calculate(); }, [calculate, loaded]);
+
+  const addFlour = () => { if (flourMix.length < 4) setFlourMix([...flourMix, { type: "bauern", grams: 100 }]); };
+  const removeFlour = (i) => { if (flourMix.length > 1) setFlourMix(flourMix.filter((_, j) => j !== i)); };
+  const updateFlour = (i, k, v) => { const m = [...flourMix]; m[i] = { ...m[i], [k]: v }; setFlourMix(m); };
+  const totalFlour = flourMix.reduce((s, f) => s + f.grams, 0);
+  const isPizza = flourMix.some(f => FLOUR_DB[f.type].cat === "pizza");
+  // ASG automatisch: 30% bei reinem Sauerteig, 20% bei Hybrid (Bäckerstandard)
+  const starterG = leaven === "sourdough" ? Math.round(totalFlour * 0.3) : leaven === "hybrid" ? Math.round(totalFlour * 0.2) : 0;
+
+  const toggleIssue = (id) => setPIssues(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  const saveRating = () => {
+    if (!schedule || pRating === 0) return;
+    const entry = {
+      id: Date.now(), date: new Date().toISOString(), user: userName || "Anonym",
+      flourMix: flourMix.map(f => ({ type: f.type, grams: f.grams })),
+      tempC: temp, ferment, leaven, waterTemp, yeastType,
+      starterG: starterG,
+      yeastUsed: schedule.ingredients.yeastG, waterUsed: schedule.ingredients.waterG,
+      rating: pRating, notes: pNotes, issues: pIssues,
+    };
+    const newH = [...history, entry];
+    setHistory(newH);
+    save("teig-history-v2", newH, true);
+    setAdj(calcAdj(newH));
+    setRatingMode(false); setPRating(0); setPNotes(""); setPIssues([]);
+  };
+
+  const filteredHistory = viewMode === "me" ? history.filter(h => h.user === userName) : history;
+  const avgR = filteredHistory.length > 0 ? (filteredHistory.reduce((s, h) => s + h.rating, 0) / filteredHistory.length).toFixed(1) : "—";
+
+  if (!loaded) return <div style={{ minHeight: "100vh", background: "#1a1207", display: "flex", alignItems: "center", justifyContent: "center", color: "#c4956a", fontFamily: "'DM Sans',sans-serif" }}>Lade...</div>;
+
+  // Name-Eingabe
+  if (showNameInput) return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(168deg,#1a1207,#2c1e0e,#1a1207)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+      <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@300;400;600;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+      <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(196,149,106,0.2)", borderRadius: "20px", padding: "40px 30px", textAlign: "center", maxWidth: "340px", width: "100%" }}>
+        <div style={{ fontSize: "48px", marginBottom: "12px" }}>
+          <svg width="64" height="44" viewBox="0 0 80 56" style={{ display: "block", margin: "0 auto" }}>
+            <ellipse cx="40" cy="30" rx="36" ry="22" fill="#8B6914" />
+            <ellipse cx="40" cy="30" rx="33" ry="19" fill="#C4956A" />
+            <ellipse cx="40" cy="30" rx="30" ry="17" fill="#DDB87A" />
+            <ellipse cx="40" cy="30" rx="27" ry="15" fill="#E8D4A8" />
+            <ellipse cx="30" cy="26" rx="4" ry="3" fill="#DDB87A" opacity="0.7" />
+            <ellipse cx="48" cy="24" rx="3.5" ry="2.5" fill="#D4C090" opacity="0.6" />
+            <ellipse cx="38" cy="34" rx="5" ry="3" fill="#DDB87A" opacity="0.65" />
+            <ellipse cx="52" cy="32" rx="3" ry="2.5" fill="#D4C090" opacity="0.55" />
+            <path d="M8,28 Q12,8 40,8 Q68,8 72,28" fill="none" stroke="#6B4E0A" strokeWidth="2.5" strokeLinecap="round" />
+          </svg>
+        </div>
+        <h2 style={{ fontFamily: "'Crimson Pro',serif", fontSize: "28px", fontWeight: 300, color: "#f0e6d3", letterSpacing: "0.06em", margin: "0 0 6px" }}>Willkommen!</h2>
+        <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px", color: "#9a8672", marginBottom: "24px" }}>Wie heisst du? Damit können wir eure Brote unterscheiden.</p>
+        <input value={nameInput} onChange={e => setNameInput(e.target.value)} placeholder="Dein Name" style={{ width: "100%", boxSizing: "border-box", padding: "14px", background: "rgba(0,0,0,0.3)", border: "1px solid rgba(196,149,106,0.25)", borderRadius: "12px", color: "#e8dcc8", fontFamily: "'DM Sans',sans-serif", fontSize: "16px", textAlign: "center", outline: "none", marginBottom: "12px" }} />
+        {allUsers.length > 0 && (
+          <div style={{ marginBottom: "12px" }}>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: "#7a6d5e", marginBottom: "8px" }}>Oder wähle dein Profil:</div>
+            <div style={{ display: "flex", gap: "6px", justifyContent: "center", flexWrap: "wrap" }}>
+              {allUsers.map(u => (
+                <button key={u} onClick={() => saveUserName(u)} style={{ padding: "8px 16px", borderRadius: "20px", background: "rgba(196,149,106,0.12)", border: "1px solid rgba(196,149,106,0.3)", color: "#f0e6d3", fontFamily: "'DM Sans',sans-serif", fontSize: "13px", cursor: "pointer" }}>👤 {u}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        <button onClick={() => { if (nameInput.trim()) saveUserName(nameInput.trim()); }} disabled={!nameInput.trim()} style={{ width: "100%", padding: "14px", background: nameInput.trim() ? "rgba(196,149,106,0.2)" : "rgba(196,149,106,0.05)", border: "1px solid rgba(196,149,106,0.35)", borderRadius: "12px", color: nameInput.trim() ? "#f0e6d3" : "#7a6d5e", fontFamily: "'DM Sans',sans-serif", fontSize: "15px", fontWeight: 600, cursor: nameInput.trim() ? "pointer" : "default" }}>Los geht's</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(168deg,#1a1207,#2c1e0e,#1a1207)", fontFamily: "'Crimson Pro','Georgia',serif", color: "#e8dcc8", padding: 0 }}>
+      <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@300;400;600;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+
+      {/* Header */}
+      <div style={{ padding: "28px 24px 10px", textAlign: "center" }}>
+        <svg width="80" height="56" viewBox="0 0 80 56" style={{ display: "block", margin: "0 auto 8px" }}>
+          {/* Brotanschnitt: Kruste aussen, Krume innen mit Poren */}
+          <ellipse cx="40" cy="30" rx="36" ry="22" fill="#8B6914" />
+          <ellipse cx="40" cy="30" rx="33" ry="19" fill="#C4956A" />
+          <ellipse cx="40" cy="30" rx="30" ry="17" fill="#DDB87A" />
+          {/* Krume (Inneres) */}
+          <ellipse cx="40" cy="30" rx="27" ry="15" fill="#E8D4A8" />
+          {/* Poren / Löcher */}
+          <ellipse cx="30" cy="26" rx="4" ry="3" fill="#DDB87A" opacity="0.7" />
+          <ellipse cx="48" cy="24" rx="3.5" ry="2.5" fill="#D4C090" opacity="0.6" />
+          <ellipse cx="38" cy="34" rx="5" ry="3" fill="#DDB87A" opacity="0.65" />
+          <ellipse cx="52" cy="32" rx="3" ry="2.5" fill="#D4C090" opacity="0.55" />
+          <ellipse cx="26" cy="33" rx="3" ry="2" fill="#DDB87A" opacity="0.5" />
+          <ellipse cx="42" cy="26" rx="2.5" ry="2" fill="#D4C090" opacity="0.5" />
+          <ellipse cx="34" cy="29" rx="2" ry="1.5" fill="#DDB87A" opacity="0.45" />
+          <ellipse cx="55" cy="28" rx="2" ry="1.8" fill="#D4C090" opacity="0.4" />
+          {/* Kruste oben (gewölbt, dunklere Linie) */}
+          <path d="M8,28 Q12,8 40,8 Q68,8 72,28" fill="none" stroke="#6B4E0A" strokeWidth="2.5" strokeLinecap="round" />
+          <path d="M10,28 Q14,10 40,10 Q66,10 70,28" fill="none" stroke="#8B6914" strokeWidth="1.5" opacity="0.5" />
+          {/* Schnittfläche unten (gerade Kante) */}
+          <line x1="8" y1="42" x2="72" y2="42" stroke="#A07830" strokeWidth="1" opacity="0.3" />
+          {/* Mehl-Spritzer */}
+          <circle cx="22" cy="16" r="0.8" fill="#F0E6D3" opacity="0.5" />
+          <circle cx="56" cy="14" r="0.6" fill="#F0E6D3" opacity="0.4" />
+          <circle cx="38" cy="12" r="0.7" fill="#F0E6D3" opacity="0.45" />
+        </svg>
+        <h1 style={{ fontSize: "clamp(22px,4.5vw,34px)", fontWeight: 300, letterSpacing: "0.08em", textTransform: "uppercase", margin: 0, color: "#f0e6d3" }}>Die besten Teige der Welt</h1>
+        <div style={{ width: "50px", height: "1px", background: "linear-gradient(90deg,transparent,#c4956a,transparent)", margin: "8px auto 5px" }} />
+        <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: "#9a8672", margin: 0 }}>Brot · Pizza · Zopf — lernfähig · für die ganze Familie</p>
+      </div>
+
+      <div style={{ padding: "0 16px", maxWidth: "480px", margin: "0 auto" }}>
+        {/* User */}
+        <div style={{ display: "flex", gap: "6px", marginBottom: "4px", justifyContent: "center", flexWrap: "wrap", alignItems: "center" }}>
+          <button onClick={() => setShowNameInput(true)} style={{ padding: "5px 14px", borderRadius: "20px", background: "rgba(196,149,106,0.15)", border: "1.5px solid rgba(196,149,106,0.4)", fontFamily: "'DM Sans',sans-serif", fontSize: "12px", fontWeight: 600, color: "#f0e6d3", cursor: "pointer" }}>👤 {userName}</button>
+          <div style={{ width: "1px", height: "16px", background: "rgba(196,149,106,0.2)" }} />
+          <button onClick={() => setViewMode("shared")} style={{ padding: "5px 12px", borderRadius: "20px", background: viewMode === "shared" ? "rgba(196,149,106,0.15)" : "transparent", border: viewMode === "shared" ? "1px solid rgba(196,149,106,0.35)" : "1px solid rgba(196,149,106,0.1)", fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: viewMode === "shared" ? "#f0e6d3" : "#7a6d5e", cursor: "pointer" }}>👨‍👩‍👧 Gemeinsam</button>
+          <button onClick={() => setViewMode("me")} style={{ padding: "5px 12px", borderRadius: "20px", background: viewMode === "me" ? "rgba(196,149,106,0.15)" : "transparent", border: viewMode === "me" ? "1px solid rgba(196,149,106,0.35)" : "1px solid rgba(196,149,106,0.1)", fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: viewMode === "me" ? "#f0e6d3" : "#7a6d5e", cursor: "pointer" }}>👤 Nur Ich</button>
+        </div>
+        {filteredHistory.length > 0 && (
+          <div style={{ textAlign: "center", marginBottom: "14px", fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: "#7a6d5e" }}>
+            ⭐ {avgR} · {filteredHistory.length} Teige {viewMode === "me" ? `von ${userName}` : "gesamt"}
+            {adj.yeastAdj !== 0 && adj.yeastAdj !== undefined && <span style={{ color: "#c4956a" }}> · 🧠 Lern-Modus</span>}
+          </div>
+        )}
+
+        {/* Mehlmischung */}
+        <SL>Mehlmischung</SL>
+        <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(196,149,106,0.15)", borderRadius: "16px", padding: "14px", marginBottom: "14px" }}>
+          {flourMix.map((fm, i) => (
+            <div key={i} style={{ display: "flex", gap: "6px", alignItems: "flex-end", marginBottom: i < flourMix.length - 1 ? "8px" : 0 }}>
+              <div style={{ flex: 1.5 }}>
+                {i === 0 && <Lbl>Mehlsorte</Lbl>}
+                <select value={fm.type} onChange={e => updateFlour(i, "type", e.target.value)} style={{ width: "100%", padding: "10px 6px", background: "rgba(0,0,0,0.3)", border: "1px solid rgba(196,149,106,0.2)", borderRadius: "10px", color: "#e8dcc8", fontFamily: "'DM Sans',sans-serif", fontSize: "13px", outline: "none", appearance: "none", WebkitAppearance: "none" }}>
+                  <optgroup label="Brot" style={{ background: "#2c1e0e" }}>{Object.entries(FLOUR_DB).filter(([, v]) => v.cat === "bread").map(([k, v]) => <option key={k} value={k} style={{ background: "#2c1e0e" }}>{v.icon} {v.name}</option>)}</optgroup>
+                  <optgroup label="Pizza" style={{ background: "#2c1e0e" }}>{Object.entries(FLOUR_DB).filter(([, v]) => v.cat === "pizza").map(([k, v]) => <option key={k} value={k} style={{ background: "#2c1e0e" }}>{v.icon} {v.name}</option>)}</optgroup>
+                </select>
+              </div>
+              <div style={{ flex: 0.7 }}>
+                {i === 0 && <Lbl>Gramm</Lbl>}
+                <input type="number" value={fm.grams} min={50} max={2000} step={25} onChange={e => updateFlour(i, "grams", Number(e.target.value))} style={{ width: "100%", boxSizing: "border-box", padding: "10px 6px", background: "rgba(0,0,0,0.3)", border: "1px solid rgba(196,149,106,0.2)", borderRadius: "10px", color: "#e8dcc8", fontFamily: "'DM Sans',sans-serif", fontSize: "14px", fontWeight: 600, outline: "none" }} />
+              </div>
+              {flourMix.length > 1 && <button onClick={() => removeFlour(i)} style={{ padding: "10px 10px", background: "rgba(180,80,60,0.15)", border: "1px solid rgba(180,80,60,0.3)", borderRadius: "10px", color: "#c47060", cursor: "pointer", fontSize: "13px", flexShrink: 0 }}>✕</button>}
+            </div>
+          ))}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "10px", paddingTop: "8px", borderTop: "1px solid rgba(196,149,106,0.08)" }}>
+            <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px", color: "#9a8672" }}>Total: <strong style={{ color: "#e8dcc8" }}>{totalFlour}g</strong></span>
+            {flourMix.length < 4 && <button onClick={addFlour} style={{ padding: "5px 12px", background: "rgba(196,149,106,0.1)", border: "1px solid rgba(196,149,106,0.25)", borderRadius: "10px", color: "#c4956a", cursor: "pointer", fontFamily: "'DM Sans',sans-serif", fontSize: "11px", fontWeight: 600 }}>+ Mehl</button>}
+          </div>
+        </div>
+
+        {/* Triebmittel */}
+        <SL>Triebmittel</SL>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px", marginBottom: "8px" }}>
+          {Object.entries(LEAVEN_TYPES).map(([k, lt]) => (
+            <Btn key={k} active={leaven === k} onClick={() => setLeaven(k)}><div style={{ fontSize: "16px", marginBottom: "2px" }}>{k === "yeast" ? (yeastType === "dry" ? "🌾" : "🧊") : k === "sourdough" ? "🧪" : "🧪+"}</div><BL active={leaven === k}>{lt.name}</BL><BS>{lt.desc}</BS></Btn>
+          ))}
+        </div>
+        {leaven !== "sourdough" && (
+          <>
+            <SL style={{ marginTop: "6px" }}>Hefe-Art</SL>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginBottom: "8px" }}>
+              {Object.entries(YEAST_TYPES).map(([k, yt]) => (
+                <Btn key={k} active={yeastType === k} onClick={() => setYeastType(k)}>
+                  <div style={{ fontSize: "16px", marginBottom: "2px" }}>{k === "fresh" ? "🧊" : "🌾"}</div>
+                  <BL active={yeastType === k}>{yt.name}</BL>
+                  <BS>{yt.desc}</BS>
+                </Btn>
+              ))}
+            </div>
+          </>
+        )}
+        {(leaven === "sourdough" || leaven === "hybrid") && (
+          <div style={{ marginBottom: "14px", padding: "10px 14px", background: "rgba(154,134,114,0.08)", border: "1px solid rgba(154,134,114,0.15)", borderRadius: "12px", fontFamily: "'DM Sans',sans-serif", fontSize: "12px", color: "#c4b99a", display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ fontSize: "18px" }}>🧪</span>
+            <span><strong>{starterG}g</strong> Anstellgut ({leaven === "sourdough" ? "30%" : "20%"} von {totalFlour}g Mehl)</span>
+          </div>
+        )}
+
+        {/* Gärmethode */}
+        <SL>Gärmethode</SL>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px", marginBottom: ferment === "split" ? "8px" : "14px" }}>
+          {Object.entries(FERMENT_METHODS).map(([k, fm]) => (
+            <Btn key={k} active={ferment === k} onClick={() => setFerment(k)}><div style={{ fontSize: "16px", marginBottom: "2px" }}>{fm.icon}</div><BL active={ferment === k}>{fm.name}</BL><BS>{fm.desc}</BS></Btn>
+          ))}
+        </div>
+        {ferment === "split" && (
+          <div style={{ marginBottom: "14px", padding: "10px 14px", background: "rgba(107,163,196,0.08)", border: "1px solid rgba(107,163,196,0.15)", borderRadius: "12px" }}>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: "#8ab8d4", marginBottom: "8px" }}>Erst bei Raumtemperatur, dann Kühlschrank:</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <input type="range" min={0.5} max={6} step={0.5} value={warmHours} onChange={e => setWarmHours(Number(e.target.value))} style={{ flex: 1, accentColor: "#c4956a" }} />
+              <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "14px", fontWeight: 600, color: "#f0e6d3", minWidth: "40px" }}>{warmHours}h</span>
+            </div>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "10px", color: "#7a6d5e", marginTop: "4px" }}>🏠 {warmHours}h warm → ❄️ Rest im Kühlschrank</div>
+          </div>
+        )}
+
+        {/* Wassertemperatur */}
+        <SL>Wassertemperatur</SL>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "5px", marginBottom: "14px" }}>
+          {Object.entries(WATER_TEMPS).map(([k, wt]) => (
+            <button key={k} onClick={() => setWaterTemp(k)} style={{
+              padding: "10px 4px 8px", textAlign: "center", cursor: "pointer", borderRadius: "12px", transition: "all 0.2s",
+              background: waterTemp === k ? "rgba(196,149,106,0.12)" : "rgba(255,255,255,0.03)",
+              border: waterTemp === k ? "2px solid rgba(196,149,106,0.45)" : "1px solid rgba(196,149,106,0.1)",
+            }}>
+              <div style={{ fontSize: "16px", marginBottom: "2px" }}>{wt.icon}</div>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px", fontWeight: 600, color: waterTemp === k ? "#f0e6d3" : "#9a8672" }}>{wt.name}</div>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "9px", color: "#7a6d5e", marginTop: "1px" }}>{wt.desc}</div>
+            </button>
+          ))}
+        </div>
+
+        {/* Einstellungen */}
+        <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(196,149,106,0.15)", borderRadius: "16px", padding: "16px" }}>
+          <SL>Zeit & Temperatur</SL>
+          <div style={{ marginBottom: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+              <button onClick={() => setStartNow(!startNow)} style={{ padding: "6px 14px", borderRadius: "20px", background: startNow ? "rgba(196,149,106,0.2)" : "rgba(255,255,255,0.03)", border: startNow ? "1.5px solid rgba(196,149,106,0.5)" : "1px solid rgba(196,149,106,0.15)", fontFamily: "'DM Sans',sans-serif", fontSize: "11px", fontWeight: 600, color: startNow ? "#f0e6d3" : "#9a8672", cursor: "pointer" }}>
+                {startNow ? "✓ Jetzt starten" : "○ Jetzt starten"}
+              </button>
+              {!startNow && <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "10px", color: "#7a6d5e" }}>Startzeitpunkt wählen:</span>}
+            </div>
+            {!startNow && (
+              <div style={{ marginBottom: "8px" }}>
+                <Lbl>Start</Lbl>
+                <input type="datetime-local" value={startStr} onChange={e => setStartStr(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "10px", background: "rgba(0,0,0,0.3)", border: "1px solid rgba(196,149,106,0.2)", borderRadius: "10px", color: "#e8dcc8", fontFamily: "'DM Sans',sans-serif", fontSize: "13px", outline: "none" }} />
+              </div>
+            )}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+            <InputField label="Raumtemp. (°C)" value={temp} onChange={setTemp} type="number" min={4} max={35} step={1} />
+            <div>
+              <Lbl>Fertig am</Lbl>
+              <input type="datetime-local" value={readyStr} onChange={e => setReadyStr(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "10px", background: "rgba(0,0,0,0.3)", border: "1px solid rgba(196,149,106,0.2)", borderRadius: "10px", color: "#e8dcc8", fontFamily: "'DM Sans',sans-serif", fontSize: "13px", outline: "none" }} />
+            </div>
+          </div>
+          {schedule && (
+            <div style={{ marginTop: "10px", padding: "8px 12px", background: "rgba(196,149,106,0.08)", borderRadius: "10px", fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: "#c4b99a", display: "flex", justifyContent: "space-between" }}>
+              <span>Gesamtzeit:</span><strong>{fmtDur(schedule.totalHours)}</strong>
+            </div>
+          )}
+          {timeError && <div style={{ marginTop: "8px", padding: "8px 12px", background: "rgba(180,80,60,0.12)", border: "1px solid rgba(180,80,60,0.25)", borderRadius: "10px", fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: "#d4836a" }}>⚠️ {timeError}</div>}
+
+          {/* Startzeit-Empfehlung (parameterabhängig) */}
+          {schedule && (() => {
+            const rt = new Date(readyStr);
+            const p = blend(flourMix);
+            const isPz = flourMix.some(f => FLOUR_DB[f.type].cat === "pizza");
+            const bkMin = isPz ? (totalFlour <= 500 ? 12 : 15) : (totalFlour <= 500 ? 35 : totalFlour <= 750 ? 40 : 45);
+            const waterTempC = WATER_TEMPS[waterTemp].tempC;
+            const doughT = Math.round((temp + waterTempC + temp) / 3);
+            const scenarios = [];
+
+            // Warme Gare: optimale Stockgare = bulkBase * 1.5 (etwas länger als Minimum für Geschmack)
+            const warmOptH = Math.round(p.bulkBase * 1.8 * 10) / 10;
+            const warmFixMin = 5 + 15 + 10 + p.proofMin + 20 + bkMin;
+            const warmStart = new Date(rt.getTime() - (warmOptH * 60 + warmFixMin) * 60000);
+            scenarios.push({ label: `Warme Gare (~${warmOptH}h)`, icon: "🏠", start: warmStart, quality: "gut", ferment: "warm" });
+
+            // Kalte Gare: 10-14h je nach Mehltyp
+            const coldOptH = Math.round(p.bulkBase * 7);
+            const coldFixMin = 5 + 15 + 30 + 10 + 30 + 20 + bkMin;
+            const coldStart = new Date(rt.getTime() - (coldOptH * 60 + coldFixMin) * 60000);
+            scenarios.push({ label: `Kalte Gare (~${coldOptH}h)`, icon: "❄️", start: coldStart, quality: "sehr gut", ferment: "cold" });
+
+            // Gemischt: 2h warm + Rest kalt
+            const splitWarmH = 2;
+            const splitColdH = Math.round(p.bulkBase * 5);
+            const splitTotalH = splitWarmH + splitColdH;
+            const splitFixMin = 5 + 15 + 30 + 10 + 30 + 20 + bkMin;
+            const splitStart = new Date(rt.getTime() - (splitTotalH * 60 + splitFixMin) * 60000);
+            scenarios.push({ label: `Gemischt (${splitWarmH}h+${splitColdH}h)`, icon: "🏠❄️", start: splitStart, quality: "optimal", ferment: "split" });
+
+            return (
+              <div style={{ marginTop: "10px", padding: "10px 12px", background: "rgba(196,149,106,0.06)", borderRadius: "10px", border: "1px solid rgba(196,149,106,0.1)" }}>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#c4956a", fontWeight: 600, marginBottom: "6px" }}>Empfohlene Startzeiten · {flourMix.map(f => FLOUR_DB[f.type].name).join("+")} · {temp}°C</div>
+                {scenarios.map((sc, i) => (
+                  <div key={i} onClick={() => { setStartNow(false); setStartStr(fDI(sc.start)); setFerment(sc.ferment); }} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "5px 0", borderBottom: i < 2 ? "1px solid rgba(196,149,106,0.08)" : "none", cursor: "pointer", fontFamily: "'DM Sans',sans-serif", fontSize: "11px" }}>
+                    <span>{sc.icon}</span>
+                    <span style={{ flex: 1, color: "#c4b99a" }}>{sc.label}</span>
+                    <span style={{ color: "#9a8672" }}>{fD(sc.start)} {fT(sc.start)}</span>
+                    <span style={{ fontSize: "9px", padding: "1px 5px", borderRadius: "4px", background: sc.quality === "optimal" ? "rgba(100,180,100,0.15)" : sc.quality === "sehr gut" ? "rgba(107,163,196,0.15)" : "rgba(196,149,106,0.1)", color: sc.quality === "optimal" ? "#8bc48b" : sc.quality === "sehr gut" ? "#8ab8d4" : "#c4b99a" }}>{sc.quality}</span>
+                  </div>
+                ))}
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "9px", color: "#7a6d5e", marginTop: "4px" }}>Antippen → Startzeit & Methode übernehmen</div>
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* ASG FÜTTERUNGSPLAN & TRACKER */}
+        {(leaven === "sourdough" || leaven === "hybrid") && (
+          <div style={{ padding: "0 16px", maxWidth: "480px", margin: "10px auto 0" }}>
+            <button onClick={() => setShowAsg(!showAsg)} style={{ width: "100%", padding: "12px 18px", background: "rgba(154,134,114,0.06)", border: "1px solid rgba(154,134,114,0.12)", borderRadius: "16px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px", fontWeight: 600, color: "#9a8672" }}>🧪 Sauerteig: Fütterungsplan & Tracker</span>
+              <span style={{ color: "#9a8672", fontSize: "14px", transform: showAsg ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.3s" }}>▾</span>
+            </button>
+            {showAsg && (
+              <div style={{ marginTop: "6px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(154,134,114,0.12)", borderRadius: "16px", padding: "14px" }}>
+
+                {/* Fütterungsplan für aktuelles Rezept */}
+                {schedule && (() => {
+                  // ASG-Fütterungsberechnung:
+                  // Benötigt: starterG für den Teig + 20g Reserve = Gesamtmenge
+                  // Fütterung: 1:5:5 Verhältnis (Starter:Mehl:Wasser) für kräftigen ASG
+                  // Oder 1:3:3 für schnellere Reife
+                  const needed = starterG;
+                  const reserve = 20; // bleibt im Glas
+                  const totalAsg = needed + reserve;
+                  // Mischung: seedG (altes ASG) + feedFlour + feedWater = totalAsg
+                  // Bei 1:5:5 → seedG * 11 = totalAsg → seedG = totalAsg / 11
+                  const seedG = Math.round(totalAsg / 7); // 1:3:3 Verhältnis für 6-8h Reife
+                  const feedFlour = Math.round((totalAsg - seedG) / 2);
+                  const feedWater = totalAsg - seedG - feedFlour;
+
+                  // Reifezeit: 6-8h bei Raumtemp, 4-5h bei warmem Raum
+                  const ripeHours = temp >= 26 ? 4 : temp >= 22 ? 6 : 8;
+
+                  // Wann füttern? = Teig-Startzeitpunkt minus Reifezeit
+                  const teigStart = schedule.steps[0]?.time;
+                  const feedTime = teigStart ? new Date(teigStart.getTime() - ripeHours * 3600000) : null;
+
+                  return (
+                    <div style={{ marginBottom: "12px" }}>
+                      <SL>Fütterungsplan für dieses Rezept</SL>
+                      <div style={{ background: "rgba(100,180,100,0.06)", border: "1px solid rgba(100,180,100,0.15)", borderRadius: "10px", padding: "12px", marginBottom: "8px" }}>
+                        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px", fontWeight: 600, color: "#8bc48b", marginBottom: "8px" }}>
+                          🌾 Füttern: {feedTime ? `${fD(feedTime)} um ${fT(feedTime)}` : "—"}
+                        </div>
+                        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px", color: "#c4b99a", lineHeight: 1.7 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid rgba(154,134,114,0.1)", padding: "3px 0" }}>
+                            <span style={{ color: "#9a8672" }}>Altes ASG (aus dem Glas)</span><strong>{seedG}g</strong>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid rgba(154,134,114,0.1)", padding: "3px 0" }}>
+                            <span style={{ color: "#9a8672" }}>+ Mehl</span><strong>{feedFlour}g</strong>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid rgba(154,134,114,0.1)", padding: "3px 0" }}>
+                            <span style={{ color: "#9a8672" }}>+ Wasser</span><strong>{feedWater}g</strong>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontWeight: 600 }}>
+                            <span style={{ color: "#9a8672" }}>= Total</span><span>{totalAsg}g</span>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: "8px", fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: "#9a8672", lineHeight: 1.5 }}>
+                          → {needed}g für den Teig + {reserve}g bleibt als neuer Starter
+                          <br />→ Reifezeit: ~{ripeHours}h bei {temp}°C (ASG soll sich verdoppeln und leicht gewölbt sein)
+                        </div>
+                      </div>
+                      <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "10px", color: "#7a6d5e", lineHeight: 1.5, padding: "0 4px" }}>
+                        💡 Der ASG ist bereit, wenn er sich verdoppelt hat und bei leichtem Schütteln leicht wackelt. Zu früh = wenig Triebkraft. Zu spät (eingefallen) = zu sauer, schwächerer Trieb.
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Tracker: Fütterungen protokollieren */}
+                <SL>Protokoll</SL>
+                <div style={{ display: "flex", gap: "6px", marginBottom: "10px" }}>
+                  <button onClick={() => {
+                    const entry = { date: new Date().toISOString(), action: "fed", user: userName };
+                    const log = [...asgLog, entry];
+                    setAsgLog(log);
+                    save("asg-log", log, true);
+                  }} style={{ flex: 1, padding: "10px", background: "rgba(100,180,100,0.12)", border: "1px solid rgba(100,180,100,0.25)", borderRadius: "10px", color: "#8bc48b", fontFamily: "'DM Sans',sans-serif", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>🌾 Jetzt gefüttert</button>
+                  <button onClick={() => {
+                    const entry = { date: new Date().toISOString(), action: "used", user: userName, grams: starterG };
+                    const log = [...asgLog, entry];
+                    setAsgLog(log);
+                    save("asg-log", log, true);
+                  }} style={{ flex: 1, padding: "10px", background: "rgba(196,149,106,0.12)", border: "1px solid rgba(196,149,106,0.25)", borderRadius: "10px", color: "#c4956a", fontFamily: "'DM Sans',sans-serif", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>🍞 Verwendet</button>
+                </div>
+                {asgLog.length > 0 && (() => {
+                  const lastFed = [...asgLog].reverse().find(e => e.action === "fed");
+                  const hoursSinceFed = lastFed ? Math.round((new Date() - new Date(lastFed.date)) / 3600000) : null;
+                  return (
+                    <>
+                      {lastFed && (
+                        <div style={{ padding: "8px 10px", background: hoursSinceFed > 48 ? "rgba(180,80,60,0.1)" : hoursSinceFed > 24 ? "rgba(196,149,106,0.08)" : "rgba(100,180,100,0.08)", borderRadius: "8px", marginBottom: "8px", fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: hoursSinceFed > 48 ? "#d4836a" : hoursSinceFed > 24 ? "#c4956a" : "#8bc48b" }}>
+                          {hoursSinceFed > 48 ? "⚠️" : hoursSinceFed > 24 ? "🔔" : "✅"} Letzte Fütterung: vor {hoursSinceFed}h ({new Date(lastFed.date).toLocaleDateString("de-DE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })})
+                          {hoursSinceFed > 48 && " — ASG auffrischen!"}
+                          {hoursSinceFed > 24 && hoursSinceFed <= 48 && " — Bald füttern"}
+                          {hoursSinceFed <= 8 && hoursSinceFed >= 4 && " — Auf dem Höhepunkt! Jetzt backen."}
+                        </div>
+                      )}
+                      <div style={{ maxHeight: "150px", overflowY: "auto" }}>
+                        {[...asgLog].reverse().slice(0, 10).map((e, i) => (
+                          <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid rgba(154,134,114,0.06)", fontFamily: "'DM Sans',sans-serif", fontSize: "10px", color: "#9a8672" }}>
+                            <span>{e.action === "fed" ? "🌾 Gefüttert" : `🍞 ${e.grams || "?"}g verwendet`} · {e.user}</span>
+                            <span>{new Date(e.date).toLocaleDateString("de-DE", { day: "numeric", month: "short" })} {fT(new Date(e.date))}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  );
+                })()}
+                {asgLog.length === 0 && <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: "#7a6d5e", textAlign: "center", padding: "8px 0" }}>Noch keine Einträge.</div>}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ZUTATEN */}
+      {schedule && (
+        <div style={{ padding: "14px 16px 0", maxWidth: "480px", margin: "0 auto" }}>
+          <div style={{ background: "linear-gradient(135deg,rgba(196,149,106,0.12),rgba(196,149,106,0.04))", border: "1px solid rgba(196,149,106,0.25)", borderRadius: "16px", padding: "18px" }}>
+            <SL>Zutaten{schedule.isPizza ? " · Pizzateig" : ""}</SL>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "7px" }}>
+              {flourMix.map((f, i) => <Chip key={i} icon={FLOUR_DB[f.type].icon} name={FLOUR_DB[f.type].name} value={`${f.grams}g`} highlight color={FLOUR_DB[f.type].color} />)}
+              <Chip icon="💧" name="Wasser" value={`${schedule.ingredients.waterG}g`} />
+              {(leaven === "sourdough" || leaven === "hybrid") && <Chip icon="🧪" name="ASG" value={`${schedule.ingredients.starterG}g`} highlight color="#9a8672" />}
+              {schedule.ingredients.yeastG > 0 && <Chip icon={yeastType === "dry" ? "🌾" : "🧊"} name={yeastType === "dry" ? "Trockenhefe" : "Frischhefe"} value={`${schedule.ingredients.yeastG}g`} />}
+              {leaven === "sourdough" && <Chip icon="🚫" name="Hefe" value="keine" />}
+              <Chip icon="🧂" name="Salz" value={`${schedule.ingredients.saltG}g`} />
+              {schedule.ingredients.sugarG > 0 && <Chip icon="🍬" name="Zucker" value={`${schedule.ingredients.sugarG}g`} />}
+              <Chip icon="🔥" name="Backtemp." value={`${schedule.baking.tempC}°C`} />
+            </div>
+            <IR icon={ferment === "cold" ? "❄️" : ferment === "split" ? "🏠❄️" : "🏠"} label="Stockgare" value={`${fmtDur(schedule.fermentation.bulkHours)} · ${ferment === "split" ? `${schedule.fermentation.doughTempC}°→5°C` : `${schedule.fermentation.tempC}°C`}`} />
+            {ferment !== "cold" && <IR icon="🌡️" label="Teigtemp." value={`~${schedule.fermentation.doughTempC}°C`} />}
+            <IR icon="⏱️" label="Backzeit" value={`${schedule.baking.minutes} Min · ${schedule.baking.tempC}°C`} />
+            <IR icon={WATER_TEMPS[waterTemp].icon} label="Wasser" value={schedule.waterLabel} />
+            <IR icon="🕐" label="Gesamtzeit" value={fmtDur(schedule.totalHours)} />
+            {leaven === "sourdough" && <div style={{ marginTop: "6px", padding: "7px 10px", background: "rgba(154,134,114,0.08)", borderRadius: "8px", fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: "#9a8672" }}>🧪 Nur Sauerteig — keine Hefe. {fmtDur(schedule.fermentation.bulkHours)} Stockgare für vollen Geschmack.</div>}
+            {schedule.qualityNote && (
+              <div style={{ marginTop: "6px", padding: "7px 10px", background: schedule.qualityNote.type === "great" ? "rgba(100,180,100,0.08)" : "rgba(180,80,60,0.08)", border: `1px solid ${schedule.qualityNote.type === "great" ? "rgba(100,180,100,0.2)" : "rgba(180,80,60,0.2)"}`, borderRadius: "8px", fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: schedule.qualityNote.type === "great" ? "#8bc48b" : "#d4836a" }}>
+                {schedule.qualityNote.type === "great" ? "🌟" : "⚠️"} {schedule.qualityNote.text}
+              </div>
+            )}
+            {adj.yeastAdj !== 0 && adj.yeastAdj !== undefined && <div style={{ marginTop: "6px", padding: "7px 10px", background: "rgba(107,163,196,0.08)", border: "1px solid rgba(107,163,196,0.15)", borderRadius: "8px", fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: "#8ab8d4" }}>🧠 Lern-Anpassung: Hefe {adj.yeastAdj > 0 ? "+" : ""}{adj.yeastAdj}g{adj.hydrationAdj ? `, Wasser ${adj.hydrationAdj > 0 ? "+" : ""}${Math.round(adj.hydrationAdj * 100)}%` : ""}</div>}
+          </div>
+        </div>
+      )}
+
+      {/* ANLEITUNG */}
+      {schedule && (
+        <div style={{ padding: "10px 16px 0", maxWidth: "480px", margin: "0 auto" }}>
+          <button onClick={() => setShowGuide(!showGuide)} style={{ width: "100%", padding: "12px 18px", background: "rgba(196,149,106,0.08)", border: "1px solid rgba(196,149,106,0.18)", borderRadius: "16px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px", fontWeight: 600, color: "#c4956a", letterSpacing: "0.06em" }}>📖 Schritt-für-Schritt Anleitung</span>
+            <span style={{ color: "#c4956a", fontSize: "14px", transform: showGuide ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.3s" }}>▾</span>
+          </button>
+          {showGuide && (
+            <div style={{ marginTop: "6px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(196,149,106,0.12)", borderRadius: "16px", padding: "14px" }}>
+              {schedule.guide.map((s, i) => (
+                <div key={i} style={{ display: "flex", gap: "10px", padding: "9px 0", borderBottom: i < schedule.guide.length - 1 ? "1px solid rgba(196,149,106,0.06)" : "none" }}>
+                  <div style={{ width: "30px", height: "30px", borderRadius: "50%", background: "rgba(196,149,106,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", flexShrink: 0 }}>{s.ic}</div>
+                  <div><div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px", fontWeight: 600, color: "#f0e6d3", marginBottom: "2px" }}>{s.t}</div><div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: "#9a8672", lineHeight: 1.55 }}>{s.txt}</div></div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ZEITPLAN */}
+      {schedule && (
+        <div style={{ padding: "10px 16px 0", maxWidth: "480px", margin: "0 auto" }}>
+          <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(196,149,106,0.12)", borderRadius: "16px", padding: "18px" }}>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.1em", color: "#c4956a", marginBottom: "14px", fontWeight: 600, display: "flex", justifyContent: "space-between" }}>
+              <span>Zeitplan</span>
+              <span style={{ color: "#9a8672", fontWeight: 400, textTransform: "none" }}>Fertig: {fD(schedule.readyTime)} {fT(schedule.readyTime)}</span>
+            </div>
+            <div style={{ position: "relative" }}>
+              <div style={{ position: "absolute", left: "13px", top: "8px", bottom: "8px", width: "2px", background: "linear-gradient(180deg,rgba(196,149,106,0.25),rgba(196,149,106,0.03))" }} />
+              {schedule.steps.map((step, i) => {
+                const isPast = activeStep !== null && i < activeStep;
+                const isCurr = i === activeStep;
+                const dL = fD(step.time); const pD = i > 0 ? fD(schedule.steps[i - 1].time) : null;
+                const cold = step.phase === "cold";
+                return (
+                  <div key={i}>
+                    {dL !== pD && <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "10px", color: "#c4956a", padding: "5px 0 2px 38px", fontWeight: 600 }}>{dL}</div>}
+                    <div style={{ display: "flex", alignItems: "flex-start", padding: "5px 0", opacity: isPast ? 0.4 : 1 }}>
+                      <div style={{ width: "26px", height: "26px", borderRadius: "50%", background: isCurr ? (cold ? "radial-gradient(circle,#6ba3c4 40%,rgba(107,163,196,0.2))" : "radial-gradient(circle,#c4956a 40%,rgba(196,149,106,0.2))") : isPast ? "rgba(196,149,106,0.12)" : cold ? "rgba(107,163,196,0.08)" : "rgba(196,149,106,0.06)", border: isCurr ? (cold ? "2px solid #6ba3c4" : "2px solid #c4956a") : cold ? "1px solid rgba(107,163,196,0.15)" : "1px solid rgba(196,149,106,0.12)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", flexShrink: 0, zIndex: 1, boxShadow: isCurr ? (cold ? "0 0 10px rgba(107,163,196,0.25)" : "0 0 10px rgba(196,149,106,0.25)") : "none" }}>{step.icon}</div>
+                      <div style={{ marginLeft: "10px", flex: 1 }}>
+                        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px", fontWeight: isCurr ? 600 : 400, color: isCurr ? "#f0e6d3" : cold ? "#8ab8d4" : "#c4b99a" }}>{step.label}</div>
+                        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "10px", color: "#7a6d5e", marginTop: "1px" }}>{fT(step.time)} · {step.duration}</div>
+                      </div>
+                      {isCurr && <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "8px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#1a1207", background: cold ? "#6ba3c4" : "#c4956a", padding: "2px 6px", borderRadius: "5px", fontWeight: 600, alignSelf: "center" }}>Jetzt</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EXPORT */}
+      {schedule && (
+        <div style={{ padding: "10px 16px 0", maxWidth: "480px", margin: "0 auto" }}>
+          {!exportHtml ? (
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button onClick={() => setExportHtml("view")} style={{ flex: 1, padding: "12px", background: "rgba(196,149,106,0.08)", border: "1px solid rgba(196,149,106,0.18)", borderRadius: "16px", cursor: "pointer", fontFamily: "'DM Sans',sans-serif", fontSize: "12px", fontWeight: 600, color: "#c4956a" }}>
+                📄 Backplan anzeigen
+              </button>
+              <button onClick={() => {
+                const ing = schedule.ingredients;
+                const fd = flourMix.map(f => `${f.grams}g ${FLOUR_DB[f.type].name}`).join(" + ");
+                const yl = leaven === "sourdough" ? "Nur Sauerteig" : `${ing.yeastG}g ${yeastType === "dry" ? "Trockenhefe" : "Frischhefe"}`;
+                const lines = [
+                  `🍞 BACKPLAN`,
+                  `Fertig: ${fD(schedule.readyTime)} ${fT(schedule.readyTime)}`,
+                  ``,
+                  `── ZUTATEN ──`,
+                  `Mehl: ${fd}`,
+                  `Wasser: ${ing.waterG}g (${WATER_TEMPS[waterTemp].name})`,
+                  `Triebmittel: ${yl}`,
+                  ing.starterG > 0 ? `Anstellgut: ${ing.starterG}g` : null,
+                  `Salz: ${ing.saltG}g`,
+                  ing.sugarG > 0 ? `Zucker: ${ing.sugarG}g` : null,
+                  ``,
+                  `── ECKDATEN ──`,
+                  `Stockgare: ${fmtDur(schedule.fermentation.bulkHours)} bei ${schedule.fermentation.tempC}°C`,
+                  `Teigtemp: ~${schedule.fermentation.doughTempC}°C`,
+                  `Backen: ${schedule.baking.minutes} Min bei ${schedule.baking.tempC}°C`,
+                  ``,
+                  `── ZEITPLAN ──`,
+                  ...schedule.steps.map(s => `${s.icon} ${fT(s.time)} ${s.label} (${s.duration})`),
+                  ``,
+                  `── ANLEITUNG ──`,
+                  ...schedule.guide.map(s => `${s.ic} ${s.t}: ${s.txt}`),
+                  ``,
+                  `Erstellt mit «Die besten Teige der Welt»`
+                ].filter(Boolean).join("\n");
+                navigator.clipboard.writeText(lines).then(() => {
+                  setCopyMsg("✓ Kopiert!");
+                  setTimeout(() => setCopyMsg(null), 2000);
+                }).catch(() => {
+                  setCopyMsg("Kopieren fehlgeschlagen");
+                  setTimeout(() => setCopyMsg(null), 2000);
+                });
+              }} style={{ flex: 1, padding: "12px", background: "rgba(196,149,106,0.15)", border: "1px solid rgba(196,149,106,0.3)", borderRadius: "16px", cursor: "pointer", fontFamily: "'DM Sans',sans-serif", fontSize: "12px", fontWeight: 600, color: "#f0e6d3" }}>
+                {copyMsg || "📋 Text kopieren"}
+              </button>
+            </div>
+          ) : (
+            <div style={{ background: "#fff", border: "1px solid rgba(196,149,106,0.25)", borderRadius: "16px", padding: "20px", color: "#2c1e0e" }}>
+              <div style={{ textAlign: "center", marginBottom: "14px" }}>
+                <div style={{ fontSize: "24px", fontWeight: 300, letterSpacing: "0.06em", textTransform: "uppercase", color: "#4a3520", fontFamily: "'Crimson Pro',serif" }}>Backplan</div>
+                <div style={{ fontSize: "11px", color: "#8B6914", marginTop: "4px" }}>Fertig: {fD(schedule.readyTime)} {fT(schedule.readyTime)} · von {userName}</div>
+              </div>
+              <div style={{ background: "#faf5ed", border: "1px solid #e0d5c5", borderRadius: "10px", padding: "12px", marginBottom: "10px" }}>
+                <div style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.1em", color: "#8B6914", fontWeight: 600, marginBottom: "8px" }}>Zutaten</div>
+                {flourMix.map((f,i) => <ExRow key={i} label={FLOUR_DB[f.type].name} value={`${f.grams}g`} />)}
+                <ExRow label="Wasser" value={`${schedule.ingredients.waterG}g (${WATER_TEMPS[waterTemp].name})`} />
+                {schedule.ingredients.starterG > 0 && <ExRow label="Anstellgut" value={`${schedule.ingredients.starterG}g`} />}
+                {schedule.ingredients.yeastG > 0 && <ExRow label={yeastType === "dry" ? "Trockenhefe" : "Frischhefe"} value={`${schedule.ingredients.yeastG}g`} />}
+                {leaven === "sourdough" && <ExRow label="Hefe" value="keine" />}
+                <ExRow label="Salz" value={`${schedule.ingredients.saltG}g`} />
+                {schedule.ingredients.sugarG > 0 && <ExRow label="Zucker" value={`${schedule.ingredients.sugarG}g`} />}
+              </div>
+              <div style={{ background: "#faf5ed", border: "1px solid #e0d5c5", borderRadius: "10px", padding: "12px", marginBottom: "10px" }}>
+                <div style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.1em", color: "#8B6914", fontWeight: 600, marginBottom: "8px" }}>Eckdaten</div>
+                <ExRow label="Stockgare" value={`${fmtDur(schedule.fermentation.bulkHours)} · ${schedule.fermentation.tempC}°C`} />
+                <ExRow label="Teigtemp." value={`~${schedule.fermentation.doughTempC}°C`} />
+                <ExRow label="Backzeit" value={`${schedule.baking.minutes} Min · ${schedule.baking.tempC}°C`} />
+                <ExRow label="Gesamtzeit" value={fmtDur(schedule.totalHours)} />
+              </div>
+              <div style={{ background: "#faf5ed", border: "1px solid #e0d5c5", borderRadius: "10px", padding: "12px", marginBottom: "10px" }}>
+                <div style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.1em", color: "#8B6914", fontWeight: 600, marginBottom: "8px" }}>Zeitplan</div>
+                {schedule.steps.map((s, i) => (
+                  <div key={i} style={{ display: "flex", gap: "8px", padding: "5px 0", borderBottom: i < schedule.steps.length - 1 ? "1px solid #ede6d8" : "none", fontSize: "13px" }}>
+                    <span style={{ width: "22px", textAlign: "center", flexShrink: 0 }}>{s.icon}</span>
+                    <span style={{ fontWeight: 600, whiteSpace: "nowrap", minWidth: "42px" }}>{fT(s.time)}</span>
+                    <span style={{ flex: 1 }}>{s.label}</span>
+                    <span style={{ color: "#888", whiteSpace: "nowrap" }}>{s.duration}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ background: "#faf5ed", border: "1px solid #e0d5c5", borderRadius: "10px", padding: "12px" }}>
+                <div style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.1em", color: "#8B6914", fontWeight: 600, marginBottom: "8px" }}>Anleitung</div>
+                {schedule.guide.map((s, i) => (
+                  <div key={i} style={{ display: "flex", gap: "8px", padding: "6px 0", borderBottom: i < schedule.guide.length - 1 ? "1px solid #ede6d8" : "none", fontSize: "12px" }}>
+                    <span style={{ fontSize: "16px", width: "24px", textAlign: "center", flexShrink: 0 }}>{s.ic}</span>
+                    <div><strong>{s.t}</strong><br /><span style={{ color: "#666" }}>{s.txt}</span></div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ textAlign: "center", color: "#aaa", fontSize: "10px", marginTop: "10px" }}>Die besten Teige der Welt · {new Date().toLocaleDateString("de-DE")}</div>
+              <div style={{ marginTop: "10px", padding: "8px 12px", background: "#f0ebe0", borderRadius: "8px", fontSize: "11px", color: "#8B6914", textAlign: "center" }}>
+                💡 Screenshot machen und per WhatsApp/iMessage teilen
+              </div>
+              <button onClick={() => setExportHtml(null)} style={{ width: "100%", marginTop: "10px", padding: "10px", background: "#eee", border: "none", borderRadius: "10px", color: "#666", fontFamily: "'DM Sans',sans-serif", fontSize: "12px", cursor: "pointer" }}>Schliessen</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* BEWERTUNG */}
+      {schedule && (
+        <div style={{ padding: "10px 16px 0", maxWidth: "480px", margin: "0 auto" }}>
+          {!ratingMode ? (
+            <button onClick={() => setRatingMode(true)} style={{ width: "100%", padding: "12px", background: "linear-gradient(135deg,rgba(196,149,106,0.15),rgba(196,149,106,0.05))", border: "1px solid rgba(196,149,106,0.25)", borderRadius: "16px", cursor: "pointer", fontFamily: "'DM Sans',sans-serif", fontSize: "12px", fontWeight: 600, color: "#c4956a" }}>
+              ⭐ Ergebnis bewerten & App verbessern
+            </button>
+          ) : (
+            <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(196,149,106,0.2)", borderRadius: "16px", padding: "18px" }}>
+              <SL>Wie war das Ergebnis?</SL>
+              <div style={{ display: "flex", gap: "6px", justifyContent: "center", marginBottom: "12px" }}>
+                {[1, 2, 3, 4, 5].map(n => (
+                  <button key={n} onClick={() => setPRating(n)} style={{ fontSize: "26px", background: "none", border: "none", cursor: "pointer", opacity: n <= pRating ? 1 : 0.3, transition: "all 0.15s", transform: n <= pRating ? "scale(1.15)" : "scale(1)" }}>⭐</button>
+                ))}
+              </div>
+              <SL style={{ marginBottom: "8px" }}>Was war auffällig?</SL>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "5px", marginBottom: "12px" }}>
+                {RATING_ISSUES.map(ri => (
+                  <button key={ri.id} onClick={() => toggleIssue(ri.id)} style={{
+                    padding: "6px 10px", borderRadius: "10px", cursor: "pointer", transition: "all 0.15s",
+                    background: pIssues.includes(ri.id) ? (ri.id === "perfect" ? "rgba(100,180,100,0.2)" : "rgba(196,149,106,0.2)") : "rgba(255,255,255,0.03)",
+                    border: pIssues.includes(ri.id) ? (ri.id === "perfect" ? "1.5px solid rgba(100,180,100,0.5)" : "1.5px solid rgba(196,149,106,0.4)") : "1px solid rgba(196,149,106,0.1)",
+                    fontFamily: "'DM Sans',sans-serif", fontSize: "11px",
+                    color: pIssues.includes(ri.id) ? "#f0e6d3" : "#9a8672",
+                  }}>{ri.icon} {ri.label}</button>
+                ))}
+              </div>
+              <textarea value={pNotes} onChange={e => setPNotes(e.target.value)} placeholder="Optional: Freitext-Notizen..." rows={2} style={{ width: "100%", boxSizing: "border-box", padding: "10px", background: "rgba(0,0,0,0.3)", border: "1px solid rgba(196,149,106,0.15)", borderRadius: "10px", color: "#e8dcc8", fontFamily: "'DM Sans',sans-serif", fontSize: "12px", outline: "none", resize: "none" }} />
+              <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+                <button onClick={saveRating} disabled={pRating === 0} style={{ flex: 1, padding: "10px", background: pRating > 0 ? "rgba(196,149,106,0.2)" : "rgba(196,149,106,0.05)", border: "1px solid rgba(196,149,106,0.3)", borderRadius: "10px", color: pRating > 0 ? "#f0e6d3" : "#7a6d5e", fontFamily: "'DM Sans',sans-serif", fontSize: "12px", fontWeight: 600, cursor: pRating > 0 ? "pointer" : "default" }}>
+                  💾 Als {userName} speichern
+                </button>
+                <button onClick={() => { setRatingMode(false); setPRating(0); setPNotes(""); setPIssues([]); }} style={{ padding: "10px 14px", background: "rgba(0,0,0,0.2)", border: "1px solid rgba(196,149,106,0.1)", borderRadius: "10px", color: "#9a8672", fontFamily: "'DM Sans',sans-serif", fontSize: "12px", cursor: "pointer" }}>Abbrechen</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* HISTORIE */}
+      <div style={{ padding: "10px 16px 40px", maxWidth: "480px", margin: "0 auto" }}>
+        {filteredHistory.length > 0 && (
+          <>
+            <button onClick={() => setShowHistory(!showHistory)} style={{ width: "100%", padding: "12px 18px", background: "rgba(196,149,106,0.05)", border: "1px solid rgba(196,149,106,0.12)", borderRadius: "16px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "12px", fontWeight: 600, color: "#9a8672" }}>📜 Historie ({filteredHistory.length}{viewMode === "me" ? ` · ${userName}` : " · Alle"})</span>
+              <span style={{ color: "#9a8672", fontSize: "14px", transform: showHistory ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.3s" }}>▾</span>
+            </button>
+            {showHistory && (
+              <div style={{ marginTop: "6px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(196,149,106,0.08)", borderRadius: "16px", padding: "14px", maxHeight: "350px", overflowY: "auto" }}>
+                {[...filteredHistory].reverse().map((h, i) => (
+                  <div key={h.id || i} style={{ padding: "10px 0", borderBottom: i < filteredHistory.length - 1 ? "1px solid rgba(196,149,106,0.06)" : "none" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: "#9a8672" }}>
+                        {new Date(h.date).toLocaleDateString("de-DE", { day: "numeric", month: "short" })} · <strong style={{ color: "#c4b99a" }}>{h.user || "?"}</strong>
+                      </span>
+                      <span style={{ fontSize: "11px" }}>{"⭐".repeat(h.rating)}{"☆".repeat(5 - h.rating)}</span>
+                    </div>
+                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "10px", color: "#7a6d5e", marginTop: "3px" }}>
+                      {h.flourMix.map(f => `${f.grams}g ${FLOUR_DB[f.type]?.name || f.type}`).join(" + ")} · {h.ferment === "cold" ? "❄️" : "🏠"} · {h.leaven === "sourdough" ? "🧪 ST" : h.leaven === "hybrid" ? "🧪+" : ""}{h.leaven !== "sourdough" ? (h.yeastType === "dry" ? " 🌾 TH" : " 🧊 FH") : ""}
+                    </div>
+                    {h.issues && h.issues.length > 0 && (
+                      <div style={{ display: "flex", gap: "4px", marginTop: "4px", flexWrap: "wrap" }}>
+                        {h.issues.map(id => { const ri = RATING_ISSUES.find(r => r.id === id); return ri ? <span key={id} style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "10px", padding: "2px 6px", borderRadius: "6px", background: id === "perfect" ? "rgba(100,180,100,0.15)" : "rgba(196,149,106,0.1)", color: id === "perfect" ? "#8bc48b" : "#c4b99a" }}>{ri.icon} {ri.label}</span> : null; })}
+                      </div>
+                    )}
+                    {h.notes && <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "10px", color: "#c4b99a", marginTop: "3px", fontStyle: "italic" }}>"{h.notes}"</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {schedule && (
+          <div style={{ marginTop: "10px", padding: "12px 16px", background: "rgba(196,149,106,0.06)", borderRadius: "12px", border: "1px solid rgba(196,149,106,0.1)" }}>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: "#9a8672", lineHeight: 1.6 }}>
+              {schedule.fermentation.bulkHours >= 12
+                ? <>💡 <strong style={{ color: "#6ba3c4" }}>Langzeitgare:</strong> {fmtDur(schedule.fermentation.bulkHours)} Stockgare — {leaven === "sourdough" ? "reiner Sauerteig entwickelt komplexe Aromen." : "minimale Hefe, maximaler Geschmack."} {ferment === "cold" ? "Kühlschrank verlangsamt die Gärung und fördert Aromen." : ""}</>
+                : schedule.fermentation.bulkHours < 2
+                  ? <>⚡ <strong style={{ color: "#d4836a" }}>Schnellteig:</strong> Nur {fmtDur(schedule.fermentation.bulkHours)} Stockgare. Für mehr Geschmack den Startzeitpunkt vorverlegen.</>
+                  : <>💡 <strong style={{ color: "#c4956a" }}>Tipp:</strong> {leaven === "sourdough" ? "Reiner Sauerteig braucht Geduld. " : ""}{fmtDur(schedule.fermentation.bulkHours)} Stockgare bei {schedule.fermentation.tempC}°C — {temp < 18 ? "kühl = mehr Geschmack!" : temp > 26 ? "warm = schnelle Gärung, im Auge behalten!" : "ideale Bedingungen."}</>
+              }
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── UI ───
+function SL({ children, style = {} }) { return <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.1em", color: "#c4956a", marginBottom: "8px", fontWeight: 600, ...style }}>{children}</div>; }
+function Lbl({ children }) { return <label style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em", color: "#9a8672", display: "block", marginBottom: "4px" }}>{children}</label>; }
+function Btn({ children, active, onClick }) { return <button onClick={onClick} style={{ padding: "10px 6px 8px", background: active ? "rgba(196,149,106,0.12)" : "rgba(255,255,255,0.03)", border: active ? "2px solid rgba(196,149,106,0.45)" : "1px solid rgba(196,149,106,0.1)", borderRadius: "12px", cursor: "pointer", textAlign: "center", transition: "all 0.2s" }}>{children}</button>; }
+function BL({ children, active }) { return <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "11px", fontWeight: 600, color: active ? "#f0e6d3" : "#9a8672" }}>{children}</div>; }
+function BS({ children }) { return <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "9px", color: "#7a6d5e", marginTop: "1px" }}>{children}</div>; }
+function InputField({ label, value, onChange, type, min, max, step }) { return <div><Lbl>{label}</Lbl><input type={type} value={value} min={min} max={max} step={step} onChange={e => onChange(Number(e.target.value))} style={{ width: "100%", boxSizing: "border-box", padding: "10px", background: "rgba(0,0,0,0.3)", border: "1px solid rgba(196,149,106,0.2)", borderRadius: "10px", color: "#e8dcc8", fontFamily: "'DM Sans',sans-serif", fontSize: "14px", fontWeight: 600, outline: "none" }} /></div>; }
+function Chip({ icon, name, value, highlight, color = "#c4956a" }) { return <div style={{ padding: "7px", textAlign: "center", background: highlight ? `${color}18` : "rgba(0,0,0,0.2)", borderRadius: "10px", border: highlight ? `1px solid ${color}40` : "1px solid transparent" }}><div style={{ fontSize: "15px", marginBottom: "2px" }}>{icon}</div><div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "8px", color: "#9a8672", textTransform: "uppercase", letterSpacing: "0.05em" }}>{name}</div><div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "13px", fontWeight: 600, color: "#e8dcc8", marginTop: "1px" }}>{value}</div></div>; }
+function IR({ icon, label, value }) { return <div style={{ marginTop: "6px", padding: "7px 10px", background: "rgba(0,0,0,0.2)", borderRadius: "10px", display: "flex", justifyContent: "space-between", alignItems: "center", fontFamily: "'DM Sans',sans-serif", fontSize: "11px" }}><span style={{ color: "#9a8672", display: "flex", alignItems: "center", gap: "4px" }}>{icon} {label}</span><span style={{ color: "#e8dcc8", fontWeight: 600 }}>{value}</span></div>; }
+function ExRow({ label, value }) { return <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", borderBottom: "1px solid #ede6d8", fontSize: "13px", fontFamily: "'DM Sans',sans-serif" }}><span style={{ color: "#888" }}>{label}</span><span style={{ fontWeight: 600 }}>{value}</span></div>; }
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(TeigPlaner));
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+  </script>
+  <script>
+    setTimeout(function() {
+      var loading = document.getElementById('loading');
+      if (loading && loading.parentElement.children.length < 2) {
+        loading.innerHTML = '<div style="text-align:center;padding:20px;color:#c4956a;font-family:DM Sans,sans-serif"><div style="font-size:40px;margin-bottom:12px">🍞</div><div style="font-size:16px;margin-bottom:8px">Laden fehlgeschlagen</div><button onclick="location.reload()" style="margin-top:16px;padding:12px 24px;background:rgba(196,149,106,0.2);border:1px solid rgba(196,149,106,0.4);border-radius:12px;color:#f0e6d3;font-size:14px;cursor:pointer">Neu laden</button></div>';
+      }
+    }, 15000);
+  </script>
+</body>
+</html>
